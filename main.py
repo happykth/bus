@@ -11,7 +11,7 @@ st.set_page_config(
 )
 
 st.title("🚌 남양주시 버스 노선 배차 시간 및 인가거리 분석")
-st.markdown("남양주시 버스 노선의 **평일/주말 배차 시간 분포** 및 **인가거리 상위 노선**을 확인합니다.")
+st.markdown("남양주시 버스 노선의 **배차 시간 분포**, **인가거리 상위 노선**, 그리고 **인가거리와 배차 시간 간의 관계**를 확인합니다.")
 
 # 데이터 로드 함수
 @st.cache_data
@@ -74,7 +74,13 @@ filtered_df = df_clean[
 ]
 
 # Tab 구성
-tab1, tab2, tab3, tab4 = st.tabs(["📊 배차 시간 히스토그램", "📈 평일 vs 주말 비교", "🛣️ 인가거리 상위 10개 노선", "📋 원본 데이터"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "📊 배차 시간 히스토그램", 
+    "📈 평일 vs 주말 비교", 
+    "🛣️ 인가거리 상위 10개 노선", 
+    "🔵 인가거리 vs 평일배차 관계", 
+    "📋 원본 데이터"
+])
 
 with tab1:
     col1, col2 = st.columns(2)
@@ -136,11 +142,9 @@ with tab2:
 with tab3:
     st.subheader("🛣️ 인가거리가 가장 긴 상위 10개 노선")
     
-    # 인가거리 내림차순 정렬 및 상위 10개 추출
     top10_df = df_clean.dropna(subset=[distance_col]).sort_values(by=distance_col, ascending=False).head(10)
     top10_df[route_col] = top10_df[route_col].astype(str)
     
-    # 가로 막대 그래프 생성
     fig_bar = px.bar(
         top10_df,
         x=distance_col,
@@ -166,5 +170,46 @@ with tab3:
     st.dataframe(top10_df[[route_col, distance_col, weekday_col, weekend_col]], use_container_width=True)
 
 with tab4:
+    st.subheader("🔵 인가거리와 평일 배차 시간 간 상관관계 분석")
+    
+    scatter_df = filtered_df.dropna(subset=[distance_col, weekday_col])
+    
+    # 산점도 생성 (선형 회귀 추세선 포함)
+    fig_scatter = px.scatter(
+        scatter_df,
+        x=distance_col,
+        y=weekday_col,
+        hover_name=route_col,
+        title="인가거리 vs 평일 배차 시간 산점도",
+        labels={distance_col: "인가거리 (km)", weekday_col: "평일 배차 시간 (분)"},
+        color=weekday_col,
+        color_continuous_scale='Viridis',
+        trendline="ols",
+        trendline_color_override="red"
+    )
+    fig_scatter.update_layout(
+        xaxis_title="인가거리 (km)",
+        yaxis_title="평일 배차 시간 (분)"
+    )
+    st.plotly_chart(fig_scatter, use_container_width=True)
+    
+    # 상관계수(Correlation) 자동 계산
+    corr = scatter_df[distance_col].corr(scatter_df[weekday_col])
+    
+    col_s1, col_s2 = st.columns(2)
+    with col_s1:
+        st.metric("피어슨 상관계수 (r)", f"{corr:.3f}")
+    with col_s2:
+        if abs(corr) >= 0.7:
+            corr_text = "매우 강한 상관관계"
+        elif abs(corr) >= 0.5:
+            corr_text = "강한 상관관계"
+        elif abs(corr) >= 0.3:
+            corr_text = "뚜렷한 양/음의 상관관계"
+        else:
+            corr_text = "약하거나 거의 없는 상관관계"
+        st.info(f"💡 **분석 결과:** 두 변수 간에는 **{corr_text}**가 관찰됩니다.")
+
+with tab5:
     st.subheader("📄 남양주시 버스 노선 원본 데이터")
     st.dataframe(df, use_container_width=True)
