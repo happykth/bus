@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 
@@ -172,43 +173,64 @@ with tab3:
 with tab4:
     st.subheader("🔵 인가거리와 평일 배차 시간 간 상관관계 분석")
     
+    # 결측치 제거
     scatter_df = filtered_df.dropna(subset=[distance_col, weekday_col])
     
-    # 산점도 생성 (선형 회귀 추세선 포함)
-    fig_scatter = px.scatter(
-        scatter_df,
-        x=distance_col,
-        y=weekday_col,
-        hover_name=route_col,
-        title="인가거리 vs 평일 배차 시간 산점도",
-        labels={distance_col: "인가거리 (km)", weekday_col: "평일 배차 시간 (분)"},
-        color=weekday_col,
-        color_continuous_scale='Viridis',
-        trendline="ols",
-        trendline_color_override="red"
-    )
-    fig_scatter.update_layout(
-        xaxis_title="인가거리 (km)",
-        yaxis_title="평일 배차 시간 (분)"
-    )
-    st.plotly_chart(fig_scatter, use_container_width=True)
-    
-    # 상관계수(Correlation) 자동 계산
-    corr = scatter_df[distance_col].corr(scatter_df[weekday_col])
-    
-    col_s1, col_s2 = st.columns(2)
-    with col_s1:
-        st.metric("피어슨 상관계수 (r)", f"{corr:.3f}")
-    with col_s2:
-        if abs(corr) >= 0.7:
-            corr_text = "매우 강한 상관관계"
-        elif abs(corr) >= 0.5:
-            corr_text = "강한 상관관계"
-        elif abs(corr) >= 0.3:
-            corr_text = "뚜렷한 양/음의 상관관계"
-        else:
-            corr_text = "약하거나 거의 없는 상관관계"
-        st.info(f"💡 **분석 결과:** 두 변수 간에는 **{corr_text}**가 관찰됩니다.")
+    if len(scatter_df) > 0:
+        # 산점도 기본 그래프 생성
+        fig_scatter = px.scatter(
+            scatter_df,
+            x=distance_col,
+            y=weekday_col,
+            hover_name=route_col,
+            title="인가거리 vs 평일 배차 시간 산점도",
+            labels={distance_col: "인가거리 (km)", weekday_col: "평일 배차 시간 (분)"},
+            color=weekday_col,
+            color_continuous_scale='Viridis'
+        )
+        
+        # numpy를 이용해 외부 패키지 없이 추세선(OLS) 계산
+        x_vals = scatter_df[distance_col].values
+        y_vals = scatter_df[weekday_col].values
+        
+        if len(x_vals) > 1:
+            slope, intercept = np.polyfit(x_vals, y_vals, 1)
+            x_range = np.linspace(x_vals.min(), x_vals.max(), 100)
+            y_range = slope * x_range + intercept
+            
+            # 추세선 추적 추가
+            fig_scatter.add_trace(go.Scatter(
+                x=x_range,
+                y=y_range,
+                mode='lines',
+                name='추세선 (OLS)',
+                line=dict(color='red', width=2, dash='dash')
+            ))
+        
+        fig_scatter.update_layout(
+            xaxis_title="인가거리 (km)",
+            yaxis_title="평일 배차 시간 (분)"
+        )
+        st.plotly_chart(fig_scatter, use_container_width=True)
+        
+        # 상관계수 계산
+        corr = scatter_df[distance_col].corr(scatter_df[weekday_col])
+        
+        col_s1, col_s2 = st.columns(2)
+        with col_s1:
+            st.metric("피어슨 상관계수 (r)", f"{corr:.3f}")
+        with col_s2:
+            if abs(corr) >= 0.7:
+                corr_text = "매우 강한 상관관계"
+            elif abs(corr) >= 0.5:
+                corr_text = "강한 상관관계"
+            elif abs(corr) >= 0.3:
+                corr_text = "뚜렷한 상관관계"
+            else:
+                corr_text = "약하거나 거의 없는 상관관계"
+            st.info(f"💡 **분석 결과:** 두 변수 간에는 **{corr_text}**가 관찰됩니다.")
+    else:
+        st.warning("선택한 조건에 해당하는 데이터가 없습니다.")
 
 with tab5:
     st.subheader("📄 남양주시 버스 노선 원본 데이터")
