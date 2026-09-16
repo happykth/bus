@@ -10,8 +10,8 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("🚌 남양주시 버스 노선 배차 시간 분석")
-st.markdown("남양주시 버스 노선의 **평일 배차 시간**과 **주말 배차 시간**의 분포를 히스토그램으로 확인합니다.")
+st.title("🚌 남양주시 버스 노선 배차 시간 및 인가거리 분석")
+st.markdown("남양주시 버스 노선의 **평일/주말 배차 시간 분포** 및 **인가거리 상위 노선**을 확인합니다.")
 
 # 데이터 로드 함수
 @st.cache_data
@@ -30,38 +30,51 @@ st.sidebar.header("🔍 설정 및 필터")
 
 cols = df.columns.tolist()
 
-# 평일/주말 배차시간 컬럼 자동 감지
+# 컬럼 자동 탐지
 weekday_col = next((c for c in cols if '평일' in c and ('배차' in c or '시간' in c or '간격' in c)), None)
 weekend_col = next((c for c in cols if ('주말' in c or '휴일' in c or '토요일' in c) and ('배차' in c or '시간' in c or '간격' in c)), None)
+distance_col = next((c for c in cols if '거리' in c or '인가거리' in c or '운행거리' in c), None)
+route_col = next((c for c in cols if '노선' in c or '버스' in c or '명' in c), cols[0] if cols else None)
 
-# 자동 감지 실패 시 수동 선택
+# 수동 선택 UI (자동 탐지 실패 대비)
 if not weekday_col or not weekend_col:
     numeric_cols = df.select_dtypes(include=['number', 'object']).columns.tolist()
     weekday_col = st.sidebar.selectbox("평일 배차시간 컬럼 선택", numeric_cols, index=0)
     weekend_col = st.sidebar.selectbox("주말 배차시간 컬럼 선택", numeric_cols, index=min(1, len(numeric_cols)-1))
-else:
-    st.sidebar.write(f"**자동 감지된 평일 컬럼:** `{weekday_col}`")
-    st.sidebar.write(f"**자동 감지된 주말 컬럼:** `{weekend_col}`")
 
-# 데이터 전처리 (숫자 추출 및 변환)
+if not distance_col:
+    distance_col = st.sidebar.selectbox("인가거리 컬럼 선택", cols)
+
+if not route_col:
+    route_col = st.sidebar.selectbox("노선명 컬럼 선택", cols)
+
+st.sidebar.write(f"**평일 컬럼:** `{weekday_col}`")
+st.sidebar.write(f"**주말 컬럼:** `{weekend_col}`")
+st.sidebar.write(f"**거리 컬럼:** `{distance_col}`")
+
+# 데이터 전처리 (숫자형 변환)
 df_clean = df.copy()
 df_clean[weekday_col] = pd.to_numeric(df_clean[weekday_col].astype(str).str.extract(r'(\d+)')[0], errors='coerce')
 df_clean[weekend_col] = pd.to_numeric(df_clean[weekend_col].astype(str).str.extract(r'(\d+)')[0], errors='coerce')
 
-# 슬라이더 필터 옵션
+# 거리 컬럼 숫자 변환 (소수점 포함)
+df_clean[distance_col] = pd.to_numeric(df_clean[distance_col].astype(str).str.extract(r'(\d+\.?\d*)')[0], errors='coerce')
+
+# 슬라이더 필터
 max_val = int(max(df_clean[weekday_col].dropna().max() if not df_clean[weekday_col].dropna().empty else 180,
                   df_clean[weekend_col].dropna().max() if not df_clean[weekend_col].dropna().empty else 180))
 
 bins = st.sidebar.slider("히스토그램 구간(Bin) 개수", min_value=5, max_value=50, value=20, step=5)
 range_filter = st.sidebar.slider("배차 시간 범위 지정 (분)", 0, max_val, (0, max_val))
 
+# 데이터 필터링
 filtered_df = df_clean[
     (df_clean[weekday_col] >= range_filter[0]) & (df_clean[weekday_col] <= range_filter[1]) |
     (df_clean[weekend_col] >= range_filter[0]) & (df_clean[weekend_col] <= range_filter[1])
 ]
 
-# 탭 구성
-tab1, tab2, tab3 = st.tabs(["📊 배차 시간 히스토그램", "📈 평일 vs 주말 비교", "📋 원본 데이터"])
+# Tab 구성
+tab1, tab2, tab3, tab4 = st.tabs(["📊 배차 시간 히스토그램", "📈 평일 vs 주말 비교", "🛣️ 인가거리 상위 10개 노선", "📋 원본 데이터"])
 
 with tab1:
     col1, col2 = st.columns(2)
@@ -121,5 +134,37 @@ with tab2:
     st.plotly_chart(fig_compare, use_container_width=True)
 
 with tab3:
+    st.subheader("🛣️ 인가거리가 가장 긴 상위 10개 노선")
+    
+    # 인가거리 내림차순 정렬 및 상위 10개 추출
+    top10_df = df_clean.dropna(subset=[distance_col]).sort_values(by=distance_col, ascending=False).head(10)
+    top10_df[route_col] = top10_df[route_col].astype(str)
+    
+    # 가로 막대 그래프 생성
+    fig_bar = px.bar(
+        top10_df,
+        x=distance_col,
+        y=route_col,
+        orientation='h',
+        text=distance_col,
+        title="인가거리 Top 10 노선 (km)",
+        labels={distance_col: "인가거리 (km)", route_col: "노선명"},
+        color=distance_col,
+        color_continuous_scale='Reds'
+    )
+    fig_bar.update_layout(
+        yaxis={'categoryorder': 'total ascending'},
+        xaxis_title="인가거리 (km)",
+        yaxis_title="노선명",
+        coloraxis_showscale=False
+    )
+    fig_bar.update_traces(texttemplate='%{text:.1f} km', textposition='outside')
+    
+    st.plotly_chart(fig_bar, use_container_width=True)
+    
+    st.markdown("##### 📌 상위 10개 노선 상세 정보")
+    st.dataframe(top10_df[[route_col, distance_col, weekday_col, weekend_col]], use_container_width=True)
+
+with tab4:
     st.subheader("📄 남양주시 버스 노선 원본 데이터")
     st.dataframe(df, use_container_width=True)
